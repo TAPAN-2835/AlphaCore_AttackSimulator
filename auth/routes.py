@@ -5,9 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.models import User
-from auth.schemas import LoginRequest, RegisterRequest, TokenResponse, UserOut
-from auth.utils import hash_password, verify_password, create_access_token
-from auth.dependencies import CurrentUser, require_admin
+from schemas.request_models import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from utils.security import hash_password, verify_password, create_access_token
+from auth.service import CurrentUser, require_admin
 from database import get_db
 
 router = APIRouter()

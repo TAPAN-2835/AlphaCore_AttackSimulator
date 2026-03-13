@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from analytics.models import RiskScore, RiskLevel
 from analytics.risk_engine import compute_and_save_risk, get_event_counts_for_user
-from auth.dependencies import require_analyst, CurrentUser
+from auth.service import require_analyst, CurrentUser
 from auth.models import User
 from campaigns.models import CampaignTarget, Campaign
 from events.models import Event, EventType
@@ -18,17 +18,24 @@ router = APIRouter()
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
-class DeptRate(BaseModel):
-    name: str
-    rate: float
-    score: float | None = None
+class DeptRiskRate(BaseModel):
+    department: str
+    click_rate: float
+    credential_rate: float
+    download_rate: float
+    report_rate: float
 
+
+class DeptScore(BaseModel):
+    name: str
+    score: float
 
 class OverviewResponse(BaseModel):
     click_rate: float
     credential_rate: float
+    download_rate: float
     report_rate: float
-    high_risk_departments: list[DeptRate]
+    high_risk_departments: list[DeptScore]
 
 
 class UserRiskResponse(BaseModel):
@@ -49,9 +56,9 @@ class TrendPoint(BaseModel):
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
-@router.get("/overview", response_model=OverviewResponse,
+@router.get("/dashboard", response_model=OverviewResponse,
             dependencies=[Depends(require_analyst)])
-async def analytics_overview(db: Annotated[AsyncSession, Depends(get_db)]):
+async def analytics_dashboard(db: Annotated[AsyncSession, Depends(get_db)]):
     total_targets = (await db.execute(select(func.count()).select_from(CampaignTarget))).scalar_one() or 1
 
     clicks = (await db.execute(
@@ -59,6 +66,9 @@ async def analytics_overview(db: Annotated[AsyncSession, Depends(get_db)]):
     )).scalar_one()
     creds = (await db.execute(
         select(func.count()).select_from(CampaignTarget).where(CampaignTarget.credential_attempt == True)
+    )).scalar_one()
+    downloads = (await db.execute(
+        select(func.count()).select_from(CampaignTarget).where(CampaignTarget.file_download == True)
     )).scalar_one()
     reported = (await db.execute(
         select(func.count()).select_from(CampaignTarget).where(CampaignTarget.reported == True)
@@ -74,19 +84,20 @@ async def analytics_overview(db: Annotated[AsyncSession, Depends(get_db)]):
         .limit(5)
     )
     high_risk_depts = [
-        DeptRate(name=row.department, rate=round(row.avg_score, 1), score=round(row.avg_score, 1))
+        DeptScore(name=row.department, score=round(row.avg_score, 1))
         for row in dept_rows
     ]
 
     return OverviewResponse(
         click_rate=round(clicks / total_targets * 100, 1),
         credential_rate=round(creds / total_targets * 100, 1),
+        download_rate=round(downloads / total_targets * 100, 1),
         report_rate=round(reported / total_targets * 100, 1),
         high_risk_departments=high_risk_depts,
     )
 
 
-@router.get("/user/{user_id}", response_model=UserRiskResponse,
+@router.get("/user-risk/{user_id}", response_model=UserRiskResponse,
             dependencies=[Depends(require_analyst)])
 async def user_risk(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
@@ -105,44 +116,33 @@ async def user_risk(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
     )
 
 
-@router.get("/click-rate", response_model=list[DeptRate],
+@router.get("/department-risk", response_model=list[DeptRiskRate],
             dependencies=[Depends(require_analyst)])
-async def click_rate_by_dept(db: Annotated[AsyncSession, Depends(get_db)]):
+async def department_risk(db: Annotated[AsyncSession, Depends(get_db)]):
     rows = await db.execute(
         select(
             CampaignTarget.department,
             func.count().label("total"),
             func.sum(CampaignTarget.link_clicked.cast(type_=None)).label("clicked"),
+            func.sum(CampaignTarget.credential_attempt.cast(type_=None)).label("creds"),
+            func.sum(CampaignTarget.file_download.cast(type_=None)).label("downloads"),
+            func.sum(CampaignTarget.reported.cast(type_=None)).label("reported"),
         )
         .where(CampaignTarget.department.isnot(None))
         .group_by(CampaignTarget.department)
     )
+    
     result = []
     for row in rows:
         total = row.total or 1
-        clicked = int(row.clicked or 0)
-        result.append(DeptRate(name=row.department, rate=round(clicked / total * 100, 1)))
-    return sorted(result, key=lambda x: x.rate, reverse=True)
-
-
-@router.get("/credential-rate", response_model=list[DeptRate],
-            dependencies=[Depends(require_analyst)])
-async def credential_rate_by_dept(db: Annotated[AsyncSession, Depends(get_db)]):
-    rows = await db.execute(
-        select(
-            CampaignTarget.department,
-            func.count().label("total"),
-            func.sum(CampaignTarget.credential_attempt.cast(type_=None)).label("attempted"),
-        )
-        .where(CampaignTarget.department.isnot(None))
-        .group_by(CampaignTarget.department)
-    )
-    result = []
-    for row in rows:
-        total = row.total or 1
-        attempted = int(row.attempted or 0)
-        result.append(DeptRate(name=row.department, rate=round(attempted / total * 100, 1)))
-    return sorted(result, key=lambda x: x.rate, reverse=True)
+        result.append(DeptRiskRate(
+            department=row.department, 
+            click_rate=round(int(row.clicked or 0) / total * 100, 1),
+            credential_rate=round(int(row.creds or 0) / total * 100, 1),
+            download_rate=round(int(row.downloads or 0) / total * 100, 1),
+            report_rate=round(int(row.reported or 0) / total * 100, 1),
+        ))
+    return sorted(result, key=lambda x: x.click_rate, reverse=True)
 
 
 @router.get("/campaign-trend", response_model=list[TrendPoint],

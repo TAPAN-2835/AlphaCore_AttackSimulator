@@ -71,9 +71,19 @@ async def upload_targets_from_csv(
         db.add(token)
         tokens.append(token)
 
+        # Log that the email is scheduled/sent
+        from events.logger import log_event
+        from events.models import EventType
+        await log_event(
+            db=db,
+            event_type=EventType.EMAIL_SENT,
+            campaign_id=campaign_id,
+            metadata={"email": email},
+        )
+
     await db.flush()
     # Schedule email dispatch in background (mocked)
-    background_tasks.add_task(_send_phishing_emails_mock, targets, tokens)
+    background_tasks.add_task(send_phishing_emails_mock, targets, tokens)
     return targets
 
 
@@ -93,18 +103,4 @@ async def complete_campaign(db: AsyncSession, campaign: Campaign) -> Campaign:
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
-def _send_phishing_emails_mock(
-    targets: list[CampaignTarget],
-    tokens: list[SimulationToken],
-) -> None:
-    """
-    In production: integrate with SendGrid / SES / SMTP.
-    Here we simply log the simulated send for hackathon purposes.
-    """
-    for target, token in zip(targets, tokens):
-        sim_link = f"{settings.SIM_BASE_URL}/sim/{token.token}"
-        logger.info(
-            "[MOCK EMAIL] To: %s | Link: %s",
-            target.email,
-            sim_link,
-        )
+from utils.email_service import send_phishing_emails_mock

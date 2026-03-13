@@ -5,9 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from auth.dependencies import CurrentUser, require_admin, require_analyst
+from auth.service import CurrentUser, require_admin, require_analyst
 from campaigns.models import Campaign, CampaignStatus
-from campaigns.schemas import CampaignCreate, CampaignOut, CampaignDetail
+from schemas.request_models import CampaignCreate, CampaignOut, CampaignDetail
 from campaigns.service import (
     create_campaign,
     upload_targets_from_csv,

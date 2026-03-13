@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.models import User, UserRole
-from auth.utils import decode_access_token
+from utils.security import decode_access_token
 from database import get_db
 
 bearer_scheme = HTTPBearer()

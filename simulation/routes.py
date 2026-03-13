@@ -17,7 +17,7 @@ from simulation.credential_pages import (
     corporate_login_page,
     awareness_page,
 )
-from simulation.malware_simulation import create_dummy_zip
+from simulation.malware_simulation import generate_dummy_file
 
 settings = get_settings()
 router = APIRouter()
@@ -75,7 +75,7 @@ async def track_link_click(
     )
     await _mark_target_flag(db, sim_token.campaign_id, sim_token.target_email, "link_clicked")
 
-    action_url = f"{settings.SIM_BASE_URL}/sim/credential-submit"
+    action_url = f"{settings.SIM_BASE_URL}/sim/credential"
 
     # Use campaign attack_type to pick the right template
     c_result = await db.execute(select(Campaign).where(Campaign.id == sim_token.campaign_id))
@@ -101,7 +101,7 @@ class CredentialSubmit(BaseModel):
     password: str  # NEVER stored — only existence of attempt is logged
 
 
-@router.post("/credential-submit", response_class=HTMLResponse)
+@router.post("/credential")
 async def credential_submit(
     body: CredentialSubmit,
     request: Request,
@@ -133,7 +133,7 @@ async def credential_submit(
     if sim_token.user_id:
         await compute_and_save_risk(db, sim_token.user_id)
 
-    return HTMLResponse(content=awareness_page())
+    return "This was a security awareness simulation. Never enter credentials on suspicious websites."
 
 
 @router.get("/download/{token}")
@@ -163,9 +163,80 @@ async def malware_download(
         from analytics.risk_engine import compute_and_save_risk
         await compute_and_save_risk(db, sim_token.user_id)
 
-    zip_bytes, filename = create_dummy_zip()
+    file_bytes, filename = generate_dummy_file()
+    
+    # MIME types handling
+    media_type = "application/octet-stream"
+    if filename.endswith(".zip"):
+        media_type = "application/zip"
+    elif filename.endswith(".docm"):
+        media_type = "application/vnd.ms-word.document.macroEnabled.12"
+    elif filename.endswith(".exe"):
+        media_type = "application/x-msdownload"
+
     return Response(
-        content=zip_bytes,
-        media_type="application/zip",
+        content=file_bytes,
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/report/{token}", status_code=status.HTTP_200_OK)
+async def email_reported(
+    token: str,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    Endpoint for a 'Report Phishing' button in an email template.
+    Logs EMAIL_REPORTED event.
+    """
+    sim_token = await _get_valid_token(token, db)
+
+    await log_event(
+        db=db,
+        event_type=EventType.EMAIL_REPORTED,
+        request=request,
+        user_id=sim_token.user_id,
+        campaign_id=sim_token.campaign_id,
+        metadata={"email": sim_token.target_email},
+    )
+    await _mark_target_flag(db, sim_token.campaign_id, sim_token.target_email, "reported")
+
+    if sim_token.user_id:
+        from analytics.risk_engine import compute_and_save_risk
+    return {"message": "Email reported successfully."}
+
+
+@router.get("/track/{token}")
+async def track_email_open(
+    token: str,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    1x1 transparent tracking pixel. Logs EMAIL_OPEN event.
+    """
+    try:
+        sim_token = await _get_valid_token(token, db)
+    except HTTPException:
+        # Silently fail for pixel loads to not break email client renders
+        return Response(content=b"", media_type="image/gif")
+
+    await log_event(
+        db=db,
+        event_type=EventType.EMAIL_OPEN,
+        request=request,
+        user_id=sim_token.user_id,
+        campaign_id=sim_token.campaign_id,
+        metadata={"email": sim_token.target_email},
+    )
+    await _mark_target_flag(db, sim_token.campaign_id, sim_token.target_email, "email_opened")
+
+    # 1x1 transparent GIF
+    pixel_data = (
+        b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00"
+        b"!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    )
+
+    return Response(content=pixel_data, media_type="image/gif")
