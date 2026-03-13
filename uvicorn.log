@@ -1,0 +1,5 @@
+INFO:     127.0.0.1:55029 - "POST /auth/register HTTP/1.1" 201 Created
+INFO:     127.0.0.1:55033 - "POST /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55034 - "GET /admin/dashboard HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55049 - "POST /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55050 - "GET /admin/dashboard HTTP/1.1" 200 OK

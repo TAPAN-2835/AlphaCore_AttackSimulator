@@ -1,0 +1,26 @@
+# FastAPI & Server
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# Async PostgreSQL
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# Auth
+bcrypt==4.1.2
+python-jose[cryptography]==3.3.0
+
+# Config / Env
+pydantic-settings==2.7.0
+pydantic[email]==2.10.6
+email-validator==2.2.0
+
+# File uploads (CSV)
+python-multipart==0.0.20
+
+# Async file I/O
+aiofiles==24.1.0
+
+# Utilities
+python-dateutil==2.9.0
